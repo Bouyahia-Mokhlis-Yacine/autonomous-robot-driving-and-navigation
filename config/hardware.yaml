@@ -1,0 +1,43 @@
+# Real RPLiDAR connection settings.
+#
+# Sensor-shape parameters (range, FOV, angular resolution, scan rate) are
+# NOT duplicated here -- they live in config/navigation.yaml's `lidar:`
+# section and are shared between the simulated and real LiDAR backends,
+# so both produce LaserScan messages under the exact same contract.
+
+rplidar:
+  port: /dev/ttyUSB0
+  baudrate: 256000   # A1 = 115200, A2/A3 = 256000 (confirmed against connected hardware)
+  timeout: 3.0        # seconds, serial read timeout
+  min_measurements_per_scan: 5   # discard near-empty revolutions
+  # The RPLiDAR reports angles increasing CLOCKWISE (seen from above); this
+  # project uses counter-clockwise (+x = robot FRONT, +y = robot LEFT).
+  # true = the driver negates every angle (verified on the robot with
+  # operator_gui.py --orientation-check).
+  angles_clockwise: true
+
+# Wheel motors: Raspberry Pi 4 GPIO -> two L298N H-bridges -> 4 DC motors,
+# skid-steer (front + back on each side driven together). ENA/ENB jumpered to
+# +5V; speed = software PWM on the IN pins via gpiozero (lgpio pin factory on
+# the Pi). Motor battery -> L298N 12V input, common ground with the Pi.
+# BCM numbering, confirmed on the robot.
+motors:
+  pins:                    # [forward, backward]
+    front_left: [12, 17]
+    back_left: [25, 26]
+    front_right: [23, 19]
+    back_right: [21, 20]
+  left_trim: 1.0           # per-side multiplier (0-1]; trim the STRONGER side down if the robot veers
+  right_trim: 1.0
+  max_duty: 0.65           # hard PWM cap -- the speed proven safe on this robot in the gesture project
+  min_duty: 0.30           # below this the motors stall (stiction); nonzero commands are raised to it
+  # Stall floors per BODY motion (see motor_test.py --calibrate-duty). A 4-wheel
+  # skid-steer needs more torque to turn in place (all wheels scrub sideways).
+  # Both default to min_duty (measure with motor_test.py --calibrate-duty).
+  min_reverse_duty: 0.30   # body reversing
+  min_turn_duty: 0.30      # body turning in place (no forward/backward component)
+  zero_threshold: 0.02     # |duty| below this is treated as a stop, not raised to min_duty
+  max_wheel_speed_mps: 0.60   # ground speed at duty 1.0 (used to convert m/s into PWM duty)
+  track_width_m: 0.30      # left-right wheel distance (robot.yaml wheel_base)
+  invert_left: false       # flip if a side runs backward when commanded forward
+  invert_right: false

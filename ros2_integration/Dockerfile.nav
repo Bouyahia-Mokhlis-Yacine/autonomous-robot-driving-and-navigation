@@ -1,0 +1,27 @@
+# Layers this project's GUI/planning dependencies on top of the existing
+# gesture-robot-ros2:jazzy image (ROS2 Jazzy + rplidar_ros + rviz2 +
+# slam_toolbox, built from ~/ros2_ws/Dockerfile.robot). Kept as a
+# separate Dockerfile/image rather than editing theirs, so their slow
+# ROS2/rviz2/slam_toolbox layers stay cached and this only adds a small,
+# fast layer on top -- same reasoning their own Dockerfile comment gives
+# for baking things into an image instead of installing at `docker run`
+# time.
+#
+# Build:
+#   docker build -t gesture-robot-ros2-nav:jazzy -f Dockerfile.nav .
+FROM gesture-robot-ros2:jazzy
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# python3-tk: tkinter isn't part of the ROS2/desktop image; needed for
+# visualization/gui.py. numpy/pyyaml/pillow via pip, matching this
+# project's requirements.txt (no rclpy/ROS2 packages here -- those
+# already exist in the base image).
+RUN apt-get update -qq && \
+    apt-get install -y --no-install-recommends -qq \
+        python3-tk \
+        python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir --break-system-packages \
+        "numpy>=1.26" "pyyaml>=6.0" "pillow>=10.0"

@@ -1,0 +1,53 @@
+# Physical robot description.
+# These values describe the robot footprint and kinematics.
+# They must not be hard-coded into algorithm modules; load them through
+# common.config and pass explicitly into constructors instead.
+
+robot:
+  wheel_base: 0.30   # meters, distance between left/right wheel contact points
+  width: 0.40        # meters, footprint width
+  length: 0.50       # meters, footprint length
+  # LiDAR mount: the centre of its spinning head relative to the footprint
+  # centre, robot frame (x forward, y left), meters: 8 cm toward the back,
+  # centred left-right. SLAM tracks the
+  # LiDAR; planning, path following and safety use the footprint centre.
+  lidar_x: -0.08
+  lidar_y: 0.0
+
+safety:
+  inflation_radius: 0.25          # meters, extra clearance added around obstacles
+  goal_tolerance: 0.15            # meters, distance considered "goal reached"
+  emergency_stop_distance: 0.30   # meters, immediate-stop trigger distance (also the depth of the
+                                  # front/rear clearance zones checked before moving that way)
+  path_deviation_threshold: 0.30  # meters, off-path distance that forces a replan
+  # Direction-aware motion safety (navigation/motion_safety.py), checked every
+  # control tick against the latest raw LiDAR scan AND the confirmed map:
+  #   forward -> zone in front of the footprint, reverse -> zone behind it,
+  #   turn in place -> circle of radius half-diagonal + rotation_margin.
+  side_margin: 0.05               # meters added to each side of the front/rear zones
+  rotation_margin: 0.03           # meters added to the half-diagonal (0.32 m) for turning in place
+  min_scan_points: 2              # raw scan points needed inside a zone to block (1 = any single return)
+
+limits:
+  max_linear_velocity: 0.50    # m/s
+  max_angular_velocity: 1.50   # rad/s
+  max_linear_acceleration: 0.50   # m/s^2
+  max_angular_acceleration: 2.0   # rad/s^2
+  command_timeout: 0.5         # seconds; no cmd_vel within this window -> stop
+
+control:
+  heading_gain: 2.0          # proportional gain on heading error -> angular velocity
+  waypoint_tolerance: 0.20   # meters, distance to advance to the next path waypoint
+  # Bidirectional path following (control/path_follower.py): FORWARD, REVERSE,
+  # ROTATE_IN_PLACE. The next path point within turn_in_place_enter_deg of the
+  # robot's front -> drive forward; of its rear -> reverse (if allowed, the
+  # rear is clear and at most max_reverse_distance of path lies that way);
+  # otherwise turn in place until the error is below turn_in_place_exit_deg.
+  # Remove turn_in_place_enter_deg for the original forward-only controller.
+  turn_in_place_enter_deg: 30.0
+  turn_in_place_exit_deg: 10.0
+  min_turn_velocity: 0.3     # rad/s, slowest commanded turn in place (so it does not stall near the exit angle)
+  allow_reverse: true
+  max_reverse_velocity: 0.25 # m/s (the rear has no bumper view beyond the LiDAR -- slower than forward)
+  max_reverse_distance: 1.5  # meters of path covered backward in one go; longer -> turn around instead
+  reverse_bias_deg: 20.0     # when a turn is needed, face the target with the REAR only if that saves >= this much turning

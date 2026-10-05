@@ -1,0 +1,28 @@
+# Persistent image for the Pi side -- just rplidar_ros baked in. Unlike
+# the laptop (see Dockerfile.robot in this folder), the Pi never needs
+# rviz2 or slam_toolbox -- those are the heavy-compute pieces that stay
+# on the laptop by design (same split as the gesture-recognition camera
+# pipeline: real-time I/O on the Pi, heavy compute on the laptop). This
+# keeps the Pi image small and the build fast.
+#
+# Build once, on the Pi:
+#   docker build -t gesture-robot-ros2:jazzy -f Dockerfile.pi .
+FROM ros:jazzy-ros-base
+
+# See Dockerfile.robot for why this matters -- without it, a package can
+# silently hang forever on a debconf prompt during a non-interactive build.
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update -qq && \
+    apt-get install -y --no-install-recommends -qq \
+        ros-jazzy-rplidar-ros \
+    && rm -rf /var/lib/apt/lists/*
+
+# `docker stop` sends SIGTERM by default. rclcpp nodes handle both SIGINT
+# and SIGTERM for clean shutdown, but only if the signal reaches the node
+# process itself -- see run_lidar_pi.sh for why the node must be exec'd
+# directly (not via `ros2 run`, which forks it as an unsignaled child).
+# SIGINT here is just belt-and-suspenders to match the one signal every
+# ROS2 tool in this stack (rclcpp, `ros2 launch`, `ros2 run`) is built and
+# tested around -- it's the one Ctrl+C already sends.
+STOPSIGNAL SIGINT

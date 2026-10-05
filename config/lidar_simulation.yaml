@@ -1,0 +1,90 @@
+# Simulated-LiDAR realism settings (simulation only -- the real driver
+# never reads this file).
+#
+# Sensor SHAPE (range limits, FOV, 1-degree bins) is NOT here: it stays in
+# navigation.yaml's `lidar:` section, shared by the ideal simulator, the
+# realistic model, and the real RPLidarDriver.
+#
+# mode:
+#   ideal     -- the original simulator: perfect, complete, instantaneous
+#                scans at exactly lidar.scan_rate, processed synchronously
+#                with zero latency. Exactly the pre-existing behavior.
+#   realistic -- the RPLiDAR A2M12 model below + asynchronous SLAM
+#                processing with latency and queue/drop behavior.
+#
+# Every realistic default is an EMPIRICAL STARTING POINT fitted to
+# tests/fixtures/real_scans_stationary.json (25 scans, ~2.2 s, stationary
+# sensor) -- not a datasheet value, and not ground truth. Re-fit with
+# `python compare_lidar_behavior.py` once more recordings exist
+# (especially recordings taken while MOVING, which the current one isn't).
+
+mode: ideal            # default keeps the original simulator; pass --sensor realistic (or set here)
+seed: 42               # makes every random draw reproducible; null = nondeterministic
+physics_dt: 0.01       # s; ground-truth motion substep, so sub-scan poses are resolvable
+
+realistic:
+  sensor:
+    # Timing. Recording: mean scan interval 90.5 ms (11.05 Hz), std 13.2 ms,
+    # min 70 ms, max 136 ms. Modeled as a steady head (period jitter below)
+    # plus a host-side delivery delay per scan (exponential, capped); interval
+    # std ~= sqrt(rotation_jitter^2 + 2*delay_mean^2) ~= 13 ms.
+    scan_rate_hz: 11.05
+    rotation_jitter_std_s: 0.002      # ASSUMPTION: motor speed regulation, not separately measurable yet
+    delivery_delay_mean_s: 0.009
+    delivery_delay_max_s: 0.06
+
+    # Sampling. 4000 samples/s (~362/rev, ~1 per 1-degree bin) is the
+    # A2-family standard-scan-mode rate the rplidar library uses; it matches
+    # the recording's gap structure (consecutive valid bins mostly 1 apart).
+    samples_per_second: 4000.0
+    # Where each revolution starts, in LaserScan angles. Recording: all three
+    # partial scans end at bin ~172 while bins 176-180 are valid 73-86% of the
+    # time in full scans => the revolution boundary sits at about -6 degrees
+    # (driver frame, as-is; see the orientation TODO in realistic_lidar.py).
+    scan_start_angle: -0.1047
+
+    # Missing returns for directions that DO contain an obstacle.
+    # Recording: 14.6% of "typically valid" bins are empty in any given
+    # full scan; 0.145 per sample reproduces that at 4000 samples/s.
+    # (Directions with nothing within range_max are a separate thing: they
+    # never return at all, handled by the ray-caster, not by this knob.)
+    sample_dropout_probability: 0.145
+
+    # Range noise: Gaussian core + wide-Gaussian outlier mixture. Fitted so
+    # that 25-scan stationary runs reproduce the recording's per-bin range
+    # std (real: median 3.9 mm, p90 16.2 mm; fit: ~4.0 mm, ~13.4 mm in a
+    # comparable cluttered scene). Per-bin std also includes in-bin angular
+    # jitter, which the sample model reproduces by itself.
+    range_noise_std_m: 0.001
+    range_noise_proportional: 0.0     # extra std per metre of range; unmeasured (recording median range 0.75 m)
+    outlier_probability: 0.02
+    outlier_std_m: 0.04
+    range_quantization_m: 0.00025     # RPLiDAR protocol distance unit
+
+    # Partial scans. Recording: 3/25 partial -- the first scan (startup) plus
+    # 2/24 afterwards; each kept only the tail ~15-25% of the revolution.
+    partial_scan_probability: 0.08
+    partial_keep_fraction_min: 0.15
+    partial_keep_fraction_max: 0.30
+    first_scan_partial: true
+    min_measurements_per_scan: 5      # same rule as hardware.yaml / the rplidar library
+
+    enable_motion_distortion: true
+
+  processing:
+    # SLAM + map-integration time per scan, in SIMULATED time (never slept).
+    # MEASURED with `python benchmark_slam_processing.py` on this laptop after
+    # the vectorized PersistentWorldModel.integrate(): scans that update the
+    # map take 11.2-23.9 ms (p5 12.7, median 14.3, p95 18.5 ms). Uniform 12-24 ms is slightly
+    # pessimistic (mean 18 ms vs 14.9 measured). Re-run the benchmark on the
+    # robot's actual computer and update these -- a slower onboard computer
+    # will be proportionally slower. (Test F in localization_stress_test.py
+    # still exercises a 0.4-0.6 s overload.)
+    delay_model: uniform
+    delay_min_s: 0.012
+    delay_max_s: 0.024
+    # latest_only = what real_sensor_walkthrough.py already does with real
+    # hardware (a reader thread overwrites one latest-scan slot). Others:
+    # queue_all, drop_newest, drop_oldest (bounded by queue_capacity).
+    queue_policy: latest_only
+    queue_capacity: 1

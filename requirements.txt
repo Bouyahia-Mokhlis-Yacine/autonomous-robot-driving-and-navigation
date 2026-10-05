@@ -1,0 +1,14 @@
+numpy>=1.26
+scipy>=1.11    # cKDTree nearest-neighbour search used by the ICP scan registration
+pyyaml>=6.0
+pytest>=7.0
+pillow>=10.0   # GUI map rendering; tkinter (GUI toolkit) ships with the standard library
+pyserial>=3.5  # real RPLiDAR only (not needed for simulation)
+rplidar>=0.9.2 # RPLiDAR serial protocol (hardware/rplidar_driver.py)
+
+# Optional: BreezySLAM, used only by the alternative correlative scan-matching
+# backend in slam/backend.py and its tests (tests/test_slam.py,
+# tests/test_slam_backend.py). The navigation runtime does not need it.
+# It is not on PyPI; build it from source (needs a C compiler):
+#   git clone --depth 1 https://github.com/simondlevy/BreezySLAM.git
+#   pip install ./BreezySLAM/python

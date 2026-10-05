@@ -1,0 +1,108 @@
+# Navigation, sensing, and planning configuration.
+# Treat these as initial/tunable values, not universal truths.
+
+lidar:
+  range_min: 0.15     # meters
+  range_max: 8.0      # meters
+  angle_min: -3.14159265358979  # radians (-pi)
+  angle_max: 3.14159265358979   # radians (+pi)
+  angular_resolution: 0.017453292519943295  # radians (~1 degree)
+  scan_rate: 10.0     # Hz
+
+mapping:
+  resolution: 0.05    # meters/cell
+  width: 20.0          # meters, initial map width
+  height: 20.0         # meters, initial map height
+  # What a no-return (range_max) bin is evidence of, in PersistentWorldModel.
+  # The RPLiDAR (and the realistic model) reports "nothing within 8 m", a
+  # missed return and an unmeasured partial-scan sector identically, so
+  # such a bin is NOT reliable free-space evidence. Measured in the
+  # realistic simulation (stationary robot, one wall): "clear" (original)
+  # left 6/69 wall-face cells confirmed and marked 455/522 cells inside the
+  # wall free -> the planner drove into it; "ignore" keeps 48+/69 confirmed
+  # and 24/522 eroded, with no collisions. Ideal-sensor maps are identical
+  # under every policy. Options: clear | ignore | limited | unknown_only.
+  # Trade-off of "ignore": open space with nothing within range_max stays
+  # UNKNOWN (still traversable, at unknown_cost_multiplier), and a departed
+  # obstacle is cleared only by returns from something behind it.
+  max_range_policy: ignore
+  max_range_clear_distance: 2.0   # used by "limited" only
+
+planning:
+  allow_diagonal: true
+  replan_interval: 1.0   # seconds between periodic replans
+  heuristic: euclidean
+  # Phase 11: cost multiplier (>= 1.0) for entering an UNKNOWN cell vs.
+  # an equivalent FREE one -- see planning/astar.py's module docstring.
+  # Initial, tunable value, not claimed to be physically optimal.
+  unknown_cost_multiplier: 3.0
+  # Phase 15: additional path-smoothing clearance margin (meters), on
+  # top of the planning grid's own inflation -- see
+  # planning/path_smoothing.py's module docstring. Initial, tunable
+  # value, not claimed to be physically optimal.
+  path_clearance_margin: 0.10
+
+# BreezySLAM's own internal scratch map, used only for scan-matching
+# localization (slam.backend.LidarScanMatchingBackend). Independent of
+# mapping.resolution/width/height above, which size the actual
+# occupancy grid the rest of the stack (inflation, A*, replanning) uses.
+slam:
+  map_size_pixels: 800
+  map_size_meters: 20.0
+  hole_width_mm: 600.0          # BreezySLAM default; how "thick" obstacles are drawn
+  sigma_xy_mm: 100.0            # RMHC search noise, position
+  sigma_theta_degrees: 20.0     # RMHC search noise, heading
+  max_search_iter: 1000
+
+# Localization health (slam/localization_health.py): when navigation must
+# stop because the pose estimate is no longer trustworthy. Pose age is
+# measured from the newest ACCEPTED scan's timestamp, so processing latency
+# counts against it. Thresholds chosen for the ~12 Hz scan rate measured on the Pi.
+localization:
+  degraded_after_s: 0.6       # older than this: still usable, but flagged
+  lost_after_s: 1.2           # older than this (or pipeline says lost): stop
+  recovery_confirmations: 2   # consecutive accepted scans needed to resume
+  # Motion validation: accept a registration only if the motion it implies
+  # since the last accepted scan is physically possible in the elapsed time:
+  #   translation <= max_linear_velocity  * (1 + velocity_margin) * dt + translation_tolerance_m
+  #   rotation    <= max_angular_velocity * (1 + velocity_margin) * dt + rotation_tolerance_deg
+  # (velocity limits from robot.yaml). false = the original fixed 0.15 m /
+  # 10 deg gate on the predicted motion, regardless of dt.
+  time_aware_validation: true
+  velocity_margin: 0.5          # 50% above the rated limits: accel overshoot, timing jitter
+  translation_tolerance_m: 0.05 # ICP noise at ~1 grid cell
+  rotation_tolerance_deg: 3.0
+  # Seed ICP from the velocity COMMANDS actually sent (slam/motion_model.py)
+  # instead of only the lagging scan-derived velocity estimate.
+  use_commanded_motion: true
+  # Propagate each SLAM pose from the moment its scan was captured (mid-
+  # rotation) to "now" with the commanded motion, every control tick, so
+  # navigation steers from where the robot is rather than where it was
+  # ~0.1-0.6 s ago. Re-anchored at every accepted scan.
+  delay_compensation: true
+  # Map-update motion filter: after bootstrap, a scan is written into the
+  # map only once the robot has moved this far or turned this much since the
+  # last scan that was. Writing every scan of a STILL robot fed its pose
+  # noise back into the map and both drifted (real LiDAR: 39 cm in 60 s
+  # standing still; replay with the filter: <= 3 cm / 2 deg over 5 min).
+  # A new obstacle in front of a stopped robot appears in the map only once
+  # it moves this far (the raw-scan motion-safety check still sees it).
+  # 0 / 0 = every scan.
+  map_update_min_translation_m: 0.05
+  map_update_min_rotation_deg: 2.0
+  # Startup mapping (bootstrap): for at least bootstrap_duration_s after the
+  # first scan, EVERY scan is integrated at the origin, so a still robot starts
+  # with a well-populated map before the motion filter above takes over.
+  # Navigation is refused meanwhile (health INITIALIZING), so the robot cannot
+  # be commanded to move; it must also not be pushed/carried. Measured on a
+  # real stationary recording, share of the 60 s reference map's confirmed
+  # cells present when bootstrap completes, <1.5 m / 1.5-3 m:
+  # 0.6 s 50% / 0%, 2 s 81% / 23%, 3 s 83% / 30%. Beyond ~3 m nothing
+  # confirms from a standstill at any duration; that fills in while driving.
+  # Bootstrap fails (LOST until restarted) if the map is still not usable for
+  # scan matching after bootstrap_timeout_s (seconds, > bootstrap_duration_s).
+  bootstrap_duration_s: 2.0
+  bootstrap_timeout_s: 5.0
+
+logging:
+  level: INFO

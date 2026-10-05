@@ -1,0 +1,53 @@
+# Robot runtime (robot_runtime.py, runs on the Raspberry Pi) and the operator
+# link to the laptop GUI (operator_gui.py). Protocol and coordinate
+# conventions: network/protocol.py.
+
+network:
+  host: 0.0.0.0          # interface the runtime listens on (0.0.0.0 = all; laptop connects to the Pi's IP)
+  port: 8765
+  state_rate_hz: 10.0    # pose / scan / path / status snapshots to the operator
+  map_rate_hz: 1.0       # full map + planning map (compressed), only when it changed
+  send_timeout_s: 1.0    # an operator that blocks a send this long is disconnected
+
+safety:
+  # An operator counts as present while it has sent anything (heartbeats every
+  # ~0.4 s) within this window.
+  operator_timeout_s: 1.5
+  # What the runtime does when NO operator is present any more:
+  #   stop      cancel the current goal (the robot stops; nothing resumes on reconnect)
+  #   continue  keep executing the current goal (still subject to every
+  #             navigation safety check: localization loss, reactive stop, ...)
+  operator_loss_policy: stop
+  # A goal/resume is rejected if it was issued against state the runtime
+  # published longer ago than this (e.g. queued in a frozen GUI).
+  max_command_state_age_s: 2.0
+  # true: STOP is latched at startup; an operator must press RESUME before any
+  # goal is accepted. Recommended once motors are attached.
+  start_stopped: false
+
+control:
+  rate_hz: 10.0          # NavigationManager / control loop tick
+
+live:                    # --backend live (real RPLiDAR); ignored by --backend sim
+  map_size_m: 20.0
+  max_range_m: 0         # 0 = the sensor's configured range; e.g. 5 to drop farther readings
+  forget_after_s: 0      # 0 = never forget (recommended while navigating)
+  inflation_scale: 1.0   # fraction of config/robot.yaml's full buffer (0.57 m); ignored if inflation_radius_m > 0
+  # Absolute obstacle inflation (planning clearance from the footprint centre).
+  # Every motion is also checked against the footprint by navigation/motion_safety.py
+  # before it is commanded; turning in place near walls needs the footprint
+  # half-diagonal + rotation_margin free (else the robot stops and waits).
+  inflation_radius_m: 0.20
+  # Wheel motors (config/hardware.yaml motors:). none = sensor-only.
+  # gpio = drive the L298N from the Pi's GPIO. With motors, STOP is latched at
+  # startup: nothing moves until an operator presses RESUME and sets a goal.
+  motors: none
+  motor_guard: true      # separate process forces the motor pins LOW if the runtime dies
+  motors_dry_run: false  # true = gpio code path without touching GPIO
+  # Global planning runs in a separate worker process, never inside the
+  # control tick (a full-map A* search took up to 4.8 s on the Pi and froze
+  # the control loop). A request not answered within planning_timeout_s
+  # (also the search's own budget) is abandoned: robot stopped, BLOCKED.
+  # Measured on the Pi: far goal in a room 0.7 s, unreachable 1.6 s.
+  async_planning: true
+  planning_timeout_s: 2.0
